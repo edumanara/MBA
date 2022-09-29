@@ -1,0 +1,152 @@
+{
+    "Query": "CreatedTimestamp >= 2022-06-01T00:00:01.000 and CreatedTimestamp <= 2022-07-30T00:00:01.000",
+    "Size": 100000,
+    "Template": {
+        "CreatedTimestamp": null,
+        "ToLocationId": null,
+        "OriginalQuantity": null,
+        "LocationId": null,
+        "TypeId": null,
+        "ItemId": null,
+        "OrderLineId": null
+    }
+}
+•	Anexo 3. Script R das análises de densidade. 
+
+#Instalação de pacotes
+pacotes <- c("tidyverse","sf","tmap","rgdal","rgeos","adehabitatHR","knitr",
+             "kableExtra","psych")
+
+if(sum(as.numeric(!pacotes %in% installed.packages())) != 0){
+  instalador <- pacotes[!pacotes %in% installed.packages()]
+  for(i in 1:length(instalador)) {
+    install.packages(instalador, dependencies = T)
+    break()}
+  sapply(pacotes, require, character = T) 
+} else {
+  sapply(pacotes, require, character = T) 
+}
+# 1. CRIANDO UM OBJETO SF A PARTIR DE UMA BASE DE DADOS
+# Carregando a base de dados
+
+alocacao <- read.csv("C:/MBA/Alocação Cachoeirinha FInal_2.csv", sep=";")
+
+# filtro da primeira quinzena
+#alocacao <- filter(alocacao,semana > 1 & semana < 4)
+
+# filtro da segunda quinzena
+#alocacao <- filter(alocacao,semana > 3 & semana < 6)
+
+# filtro da terceira quinzena
+#alocacao <- filter(alocacao,semana > 5 & semana < 8)
+
+# Observando a classe do objeto alocacao:
+class(alocacao)
+
+# Criando um objeto do tipo sf a partir de um data frame:
+sf_alocacao <- st_as_sf(x = alocacao, coords = c("latitude", "longitude"), crs = 4326)
+
+# Observando a classe do objeto sf_alocacao:
+class(sf_alocacao)
+
+# Plotando o objeto sf_alocacao de forma espacial:
+tm_shape(shp = sf_alocacao) +   tm_dots(size = 0.03)
+
+# Adicionando uma camada de um mapa do Leafleet que considere a bounding box do # objeto sf_alocacao:
+tmap_mode("view")
+
+tm_shape(shp = sf_alocacao) + tm_dots(col = "deepskyblue4", 
+          border.col = "black",size = 0.3,alpha = 0.1)
+
+tm_shape(shp = sf_alocacao) + tm_dots(col = "rua",size = 0.1)
+
+# 1 BUFFER ANALYSIS
+
+coordenadas_alocacao <- cbind(alocacao$latitude,alocacao$longitude)
+
+coordenadas_alocacao
+
+#SpatialPoints() 
+sp_alocacao <- SpatialPoints(coords = coordenadas_alocacao,
+                              proj4string = CRS("+proj=longlat"))
+
+# objeto SP
+sp_alocacao@coords
+sp_alocacao@bbox
+sp_alocacao@proj4string@projargs
+
+# Uma plotagem básica:
+plot(sp_alocacao)
+
+# Visualizando o resultado:
+tmap_mode("plot")
+
+tm_shape(shp = sp_alocacao) +   tm_dots(size = 0.5)
+
+#  distancias euclidianas.
+
+alocacao_UTM <- spTransform(x = sp_alocacao, CRSobj = CRS("+init=epsg:22523"))
+# Visualizando o resultado:
+tm_shape(shp = alocacao_UTM) + tm_dots(size = 0.5)
+
+#  gBuffer():
+buffer_alocacao <- gBuffer(spgeom = alocacao_UTM, width = 50,byid = TRUE)
+
+# Plotagem do objeto buffer_alocacao:
+tm_shape(shp = buffer_alocacao) +   tm_borders()
+
+tmap_mode("view")
+
+tm_shape(shp = buffer_alocacao) +   tm_borders()
+
+# Combinando os objetos sf_alocacao e buffer_alocacao:
+
+  tm_shape(shp = sf_alocacao) +   tm_dots(col = "rua", size = 0.02) +
+  tm_shape(buffer_alocacao) +   tm_borders(col = "black") 
+
+# 2. BUFFER UNION
+
+buffer_union <- gUnaryUnion(spgeom = buffer_alocacao)
+
+tm_shape(shp = sf_alocacao) +   tm_dots(col = "rua",  size = 0.02) +
+  tm_shape(shp = buffer_union) +  tm_borders(col = "black") + 
+  tm_fill(col = "gray", alpha = 0.5) 
+
+# 3. KERNEL DENSITIES
+
+# Criando um objeto sp com a base de dados atrelada a ele:
+alocacao_sp_df <- SpatialPointsDataFrame(data = alocacao,
+                                          coords = coordenadas_alocacao,
+                                          proj4string = CRS("+proj=longlat"))
+# função kernelUD():
+alocacao_dens <- kernelUD(xy = alocacao_sp_df,h = "href",grid = 1500,boundary = NULL)
+
+plot(alocacao_dens)
+
+# Separando as zonas de maior densidade:
+zona1 <- getverticeshr(x = alocacao_dens, percent = 20) 
+zona2 <- getverticeshr(x = alocacao_dens, percent = 40) 
+zona3 <- getverticeshr(x = alocacao_dens, percent = 60) 
+zona4 <- getverticeshr(x = alocacao_dens, percent = 80)
+
+tmap_options(check.and.fix = TRUE) 
+tmap_mode("view")
+
+  tm_shape(shp = alocacao_sp_df) + 
+  tm_squares(col = "rua",palette = "Set2", size = 0.2,legend.hist = TRUE,   style = "fixed",
+             breaks = c(1,2,3,4,5,6,7,8,9,10,11,12,13)) +
+  tm_layout(legend.outside = TRUE) +
+  tm_shape(zona1,legend.show = TRUE) + 
+  tm_borders(col = "firebrick4", lwd = 2.5) +
+  tm_fill(alpha = 0.4, col = "firebrick4") + 
+  tm_shape(zona2) + 
+  tm_borders(col = "firebrick3", lwd = 2.5) + 
+  tm_fill(alpha = 0.3, col = "firebrick3") + 
+  tm_shape(zona3) + 
+  tm_borders(col = "firebrick2", lwd = 2.5) + 
+  tm_fill(alpha = 0.2, col = "firebrick2") +
+  tm_shape(zona4) + 
+  tm_borders(col = "firebrick1", lwd = 2.5) + 
+  tm_fill(alpha = 0.1, col = "firebrick1")
+
+# FIM ---------------------------------------------------------------------
